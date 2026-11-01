@@ -104,59 +104,95 @@ function importBackupData(backupData) {
     throw new Error('Arquivo de backup inválido ou corrompido.');
   }
 
+  // Security: Strict column whitelists to prevent dynamic SQL injection via manipulated backup payloads
+  const ALLOWED_TASK_COLUMNS = new Set([
+    'id', 'title', 'description', 'project_id', 'category', 'client_id', 'client_name',
+    'target_date', 'target_time', 'due_date', 'priority', 'status', 'is_pinned',
+    'recurrence', 'recurrence_days', 'reminder_at_midnight', 'reminder_at_time',
+    'reminder_minutes_before', 'links', 'attachments', 'subtasks', 'checklist',
+    'created_at', 'updated_at'
+  ]);
+
+  const ALLOWED_CLIENT_COLUMNS = new Set([
+    'id', 'name', 'company_name', 'segment', 'instagram', 'phone', 'email',
+    'contract_value', 'notes', 'status', 'created_at', 'updated_at'
+  ]);
+
+  const ALLOWED_RELEASE_COLUMNS = new Set([
+    'id', 'title', 'release_date', 'release_time', 'recurrence', 'genre',
+    'bpm', 'musical_key', 'formats', 'license_type', 'cover_art_url',
+    'audio_preview_url', 'steps_checklist', 'created_at', 'updated_at'
+  ]);
+
+  const ALLOWED_LEAD_COLUMNS = new Set([
+    'id', 'project_id', 'name', 'type', 'instagram', 'phone', 'email',
+    'notes', 'status', 'approach_date', 'next_follow_up_date', 'reminder_set',
+    'history', 'created_at', 'updated_at'
+  ]);
+
   const db = getDatabase();
   const restoreTransaction = db.transaction((tables) => {
-    // Clear existing
+    // Clear existing tables in a safe ACID transaction
     db.prepare('DELETE FROM tasks').run();
     db.prepare('DELETE FROM clients').run();
     db.prepare('DELETE FROM releases').run();
     db.prepare('DELETE FROM leads').run();
 
-    // Insert tasks
-    if (tables.tasks && tables.tasks.length > 0) {
-      const taskCols = Object.keys(tables.tasks[0]);
-      const placeholders = taskCols.map(() => '?').join(', ');
-      const stmt = db.prepare(`INSERT INTO tasks (${taskCols.join(', ')}) VALUES (${placeholders})`);
-      for (const t of tables.tasks) {
-        stmt.run(...taskCols.map(c => t[c]));
+    // Insert tasks with whitelisted columns
+    if (Array.isArray(tables.tasks) && tables.tasks.length > 0) {
+      const taskCols = Object.keys(tables.tasks[0]).filter(c => ALLOWED_TASK_COLUMNS.has(c));
+      if (taskCols.length > 0) {
+        const placeholders = taskCols.map(() => '?').join(', ');
+        const stmt = db.prepare(`INSERT INTO tasks (${taskCols.join(', ')}) VALUES (${placeholders})`);
+        for (const t of tables.tasks) {
+          stmt.run(...taskCols.map(c => t[c]));
+        }
       }
     }
 
-    // Insert clients
-    if (tables.clients && tables.clients.length > 0) {
-      const clientCols = Object.keys(tables.clients[0]);
-      const placeholders = clientCols.map(() => '?').join(', ');
-      const stmt = db.prepare(`INSERT INTO clients (${clientCols.join(', ')}) VALUES (${placeholders})`);
-      for (const c of tables.clients) {
-        stmt.run(...clientCols.map(col => c[col]));
+    // Insert clients with whitelisted columns
+    if (Array.isArray(tables.clients) && tables.clients.length > 0) {
+      const clientCols = Object.keys(tables.clients[0]).filter(c => ALLOWED_CLIENT_COLUMNS.has(c));
+      if (clientCols.length > 0) {
+        const placeholders = clientCols.map(() => '?').join(', ');
+        const stmt = db.prepare(`INSERT INTO clients (${clientCols.join(', ')}) VALUES (${placeholders})`);
+        for (const c of tables.clients) {
+          stmt.run(...clientCols.map(col => c[col]));
+        }
       }
     }
 
-    // Insert releases
-    if (tables.releases && tables.releases.length > 0) {
-      const relCols = Object.keys(tables.releases[0]);
-      const placeholders = relCols.map(() => '?').join(', ');
-      const stmt = db.prepare(`INSERT INTO releases (${relCols.join(', ')}) VALUES (${placeholders})`);
-      for (const r of tables.releases) {
-        stmt.run(...relCols.map(col => r[col]));
+    // Insert releases with whitelisted columns
+    if (Array.isArray(tables.releases) && tables.releases.length > 0) {
+      const relCols = Object.keys(tables.releases[0]).filter(c => ALLOWED_RELEASE_COLUMNS.has(c));
+      if (relCols.length > 0) {
+        const placeholders = relCols.map(() => '?').join(', ');
+        const stmt = db.prepare(`INSERT INTO releases (${relCols.join(', ')}) VALUES (${placeholders})`);
+        for (const r of tables.releases) {
+          stmt.run(...relCols.map(col => r[col]));
+        }
       }
     }
 
-    // Insert leads
-    if (tables.leads && tables.leads.length > 0) {
-      const leadCols = Object.keys(tables.leads[0]);
-      const placeholders = leadCols.map(() => '?').join(', ');
-      const stmt = db.prepare(`INSERT INTO leads (${leadCols.join(', ')}) VALUES (${placeholders})`);
-      for (const l of tables.leads) {
-        stmt.run(...leadCols.map(col => l[col]));
+    // Insert leads with whitelisted columns
+    if (Array.isArray(tables.leads) && tables.leads.length > 0) {
+      const leadCols = Object.keys(tables.leads[0]).filter(c => ALLOWED_LEAD_COLUMNS.has(c));
+      if (leadCols.length > 0) {
+        const placeholders = leadCols.map(() => '?').join(', ');
+        const stmt = db.prepare(`INSERT INTO leads (${leadCols.join(', ')}) VALUES (${placeholders})`);
+        for (const l of tables.leads) {
+          stmt.run(...leadCols.map(col => l[col]));
+        }
       }
     }
 
-    // Insert settings
-    if (tables.settings && tables.settings.length > 0) {
+    // Insert settings safely
+    if (Array.isArray(tables.settings) && tables.settings.length > 0) {
       const stmt = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
       for (const s of tables.settings) {
-        stmt.run(s.key, s.value);
+        if (typeof s.key === 'string' && typeof s.value === 'string') {
+          stmt.run(s.key, s.value);
+        }
       }
     }
   });
@@ -165,26 +201,37 @@ function importBackupData(backupData) {
   return true;
 }
 
-// Export Tasks to CSV format
+// Security: Neutralize CSV Formula Injection (CWE-1236)
+function sanitizeCSVField(val) {
+  if (val === null || val === undefined) return '""';
+  let str = String(val);
+  // If the cell begins with formula characters, prefix with single quote
+  if (/^[=+\-@\t\r]/.test(str)) {
+    str = "'" + str;
+  }
+  return `"${str.replace(/"/g, '""')}"`;
+}
+
+// Export Tasks to CSV format with formula neutralization and UTF-8 BOM
 function exportTasksToCSV() {
   const db = getDatabase();
   const tasks = db.prepare('SELECT * FROM tasks ORDER BY target_date ASC').all();
 
   const headers = ['ID', 'Titulo', 'Projeto', 'Categoria', 'Data', 'Horario', 'Prazo_Entrega', 'Prioridade', 'Status', 'Lembrete_Ativo'];
   const rows = tasks.map(t => [
-    t.id,
-    `"${(t.title || '').replace(/"/g, '""')}"`,
-    t.project_id,
-    `"${(t.category || '').replace(/"/g, '""')}"`,
-    t.target_date,
-    t.target_time || '',
-    t.delivery_date || '',
-    t.priority,
-    t.status,
-    t.reminder_enabled ? 'Sim' : 'Nao'
+    sanitizeCSVField(t.id),
+    sanitizeCSVField(t.title),
+    sanitizeCSVField(t.project_id),
+    sanitizeCSVField(t.category),
+    sanitizeCSVField(t.target_date),
+    sanitizeCSVField(t.target_time || ''),
+    sanitizeCSVField(t.delivery_date || ''),
+    sanitizeCSVField(t.priority),
+    sanitizeCSVField(t.status),
+    sanitizeCSVField(t.reminder_enabled ? 'Sim' : 'Nao')
   ]);
 
-  // UTF-8 BOM
+  // UTF-8 BOM (\uFEFF)
   return '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\r\n');
 }
 

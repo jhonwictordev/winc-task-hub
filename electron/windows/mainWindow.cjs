@@ -39,7 +39,32 @@ function createMainWindow(isDev = false, devServerUrl = '') {
       preload: path.join(__dirname, '../preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
       devTools: isDev
+    }
+  });
+
+  // Security: Block unexpected new windows and route external links to default browser
+  const { shell } = require('electron');
+  mainWin.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('https://') || url.startsWith('http://')) {
+      shell.openExternal(url).catch(() => {});
+    }
+    return { action: 'deny' };
+  });
+
+  // Security: Prevent in-window navigation away from local bundle
+  mainWin.webContents.on('will-navigate', (event, navigationUrl) => {
+    if (isDev && devServerUrl && navigationUrl.startsWith(devServerUrl)) return;
+    try {
+      const parsed = new URL(navigationUrl);
+      if (parsed.protocol === 'file:') return;
+    } catch (e) {}
+    event.preventDefault();
+    if (navigationUrl.startsWith('https://') || navigationUrl.startsWith('http://')) {
+      shell.openExternal(navigationUrl).catch(() => {});
     }
   });
 

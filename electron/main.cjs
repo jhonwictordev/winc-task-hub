@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, nativeImage, globalShortcut, ipcMain } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, globalShortcut, ipcMain, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -210,88 +210,196 @@ function registerGlobalToggleShortcut(shortcutStr = 'CommandOrControl+Shift+T') 
   }
 }
 
+// Security: Validate IPC sender to ensure requests only originate from trusted local application frames
+function validateIpcSender(event) {
+  if (!event || !event.senderFrame) return true;
+  const frameUrl = event.senderFrame.url;
+  if (!frameUrl) return false;
+  if (isDev && devServerUrl && frameUrl.startsWith(devServerUrl)) return true;
+  return frameUrl.startsWith('file://');
+}
+
 function registerIPCHandlers() {
   // Tasks
-  ipcMain.handle('tasks:getAll', () => tasksRepo.getAllTasks());
-  ipcMain.handle('tasks:getById', (_, id) => tasksRepo.getTaskById(id));
-  ipcMain.handle('tasks:getByDate', (_, dateStr) => tasksRepo.getTasksByDate(dateStr));
-  ipcMain.handle('tasks:create', (_, data) => {
+  ipcMain.handle('tasks:getAll', (event) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    return tasksRepo.getAllTasks();
+  });
+
+  ipcMain.handle('tasks:getById', (event, id) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    if (typeof id !== 'string' || !id) throw new Error('Invalid task ID');
+    return tasksRepo.getTaskById(id);
+  });
+
+  ipcMain.handle('tasks:getByDate', (event, dateStr) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    if (typeof dateStr !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) throw new Error('Invalid date format');
+    return tasksRepo.getTasksByDate(dateStr);
+  });
+
+  ipcMain.handle('tasks:create', (event, data) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    if (!data || typeof data !== 'object') throw new Error('Invalid task data');
     const res = tasksRepo.createTask(data);
-    // Discreet OS Notification for new task (does not open windows or steal focus)
     notificationService.notifyNewTask(res);
     broadcastToAllWindows('tasks-changed');
     return res;
   });
-  ipcMain.handle('tasks:update', (_, id, data) => {
+
+  ipcMain.handle('tasks:update', (event, id, data) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    if (typeof id !== 'string' || !id || !data || typeof data !== 'object') throw new Error('Invalid update parameters');
     const res = tasksRepo.updateTask(id, data);
     broadcastToAllWindows('tasks-changed');
     return res;
   });
-  ipcMain.handle('tasks:delete', (_, id) => {
+
+  ipcMain.handle('tasks:delete', (event, id) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    if (typeof id !== 'string' || !id) throw new Error('Invalid task ID');
     const res = tasksRepo.deleteTask(id);
     broadcastToAllWindows('tasks-changed');
     return res;
   });
-  ipcMain.handle('tasks:duplicate', (_, id) => {
+
+  ipcMain.handle('tasks:duplicate', (event, id) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    if (typeof id !== 'string' || !id) throw new Error('Invalid task ID');
     const res = tasksRepo.duplicateTask(id);
     broadcastToAllWindows('tasks-changed');
     return res;
   });
-  ipcMain.handle('tasks:conclude', (_, id) => {
+
+  ipcMain.handle('tasks:conclude', (event, id) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    if (typeof id !== 'string' || !id) throw new Error('Invalid task ID');
     const res = tasksRepo.concludeTask(id);
     broadcastToAllWindows('tasks-changed');
-    // Task conclusion is strictly silent (no notification, no window popup)
     return res;
   });
-  ipcMain.handle('tasks:snooze', (_, id, newDate, newTime) => {
+
+  ipcMain.handle('tasks:snooze', (event, id, newDate, newTime) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    if (typeof id !== 'string' || !id || typeof newDate !== 'string') throw new Error('Invalid snooze parameters');
     const res = tasksRepo.snoozeTask(id, newDate, newTime);
     broadcastToAllWindows('tasks-changed');
     return res;
   });
-  ipcMain.handle('tasks:unpin', (_, id) => {
+
+  ipcMain.handle('tasks:unpin', (event, id) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    if (typeof id !== 'string' || !id) throw new Error('Invalid task ID');
     const res = tasksRepo.unpinTask(id);
     broadcastToAllWindows('tasks-changed');
     return res;
   });
-  ipcMain.handle('tasks:pin', (_, id) => {
+
+  ipcMain.handle('tasks:pin', (event, id) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    if (typeof id !== 'string' || !id) throw new Error('Invalid task ID');
     const res = tasksRepo.pinTask(id);
     broadcastToAllWindows('tasks-changed');
     return res;
   });
-  ipcMain.handle('tasks:getPinned', () => tasksRepo.getCurrentlyPinnedTasks());
+
+  ipcMain.handle('tasks:getPinned', (event) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    return tasksRepo.getCurrentlyPinnedTasks();
+  });
 
   // Clients
-  ipcMain.handle('clients:getAll', () => clientsRepo.getAllClients());
-  ipcMain.handle('clients:create', (_, data) => clientsRepo.createClient(data));
-  ipcMain.handle('clients:update', (_, id, data) => clientsRepo.updateClient(id, data));
-  ipcMain.handle('clients:delete', (_, id) => clientsRepo.deleteClient(id));
+  ipcMain.handle('clients:getAll', (event) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    return clientsRepo.getAllClients();
+  });
+
+  ipcMain.handle('clients:create', (event, data) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    if (!data || typeof data !== 'object') throw new Error('Invalid client data');
+    return clientsRepo.createClient(data);
+  });
+
+  ipcMain.handle('clients:update', (event, id, data) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    if (typeof id !== 'string' || !id || !data || typeof data !== 'object') throw new Error('Invalid update parameters');
+    return clientsRepo.updateClient(id, data);
+  });
+
+  ipcMain.handle('clients:delete', (event, id) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    if (typeof id !== 'string' || !id) throw new Error('Invalid client ID');
+    return clientsRepo.deleteClient(id);
+  });
 
   // Releases
-  ipcMain.handle('releases:getAll', () => clientsRepo.getAllReleases());
-  ipcMain.handle('releases:create', (_, data, createTasks) => {
+  ipcMain.handle('releases:getAll', (event) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    return clientsRepo.getAllReleases();
+  });
+
+  ipcMain.handle('releases:create', (event, data, createTasks) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    if (!data || typeof data !== 'object') throw new Error('Invalid release data');
     const res = clientsRepo.createRelease(data, createTasks);
     if (createTasks) broadcastToAllWindows('tasks-changed');
     return res;
   });
-  ipcMain.handle('releases:update', (_, id, data) => clientsRepo.updateRelease(id, data));
-  ipcMain.handle('releases:delete', (_, id) => clientsRepo.deleteRelease(id));
+
+  ipcMain.handle('releases:update', (event, id, data) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    if (typeof id !== 'string' || !id || !data || typeof data !== 'object') throw new Error('Invalid update parameters');
+    return clientsRepo.updateRelease(id, data);
+  });
+
+  ipcMain.handle('releases:delete', (event, id) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    if (typeof id !== 'string' || !id) throw new Error('Invalid release ID');
+    return clientsRepo.deleteRelease(id);
+  });
 
   // Leads
-  ipcMain.handle('leads:getAll', (_, projectId) => prospectionRepo.getAllLeads(projectId));
-  ipcMain.handle('leads:create', (_, data) => {
+  ipcMain.handle('leads:getAll', (event, projectId) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    return prospectionRepo.getAllLeads(projectId);
+  });
+
+  ipcMain.handle('leads:create', (event, data) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    if (!data || typeof data !== 'object') throw new Error('Invalid lead data');
     const res = prospectionRepo.createLead(data);
     if (data.reminderSet && data.nextFollowUpDate) {
       broadcastToAllWindows('tasks-changed');
     }
     return res;
   });
-  ipcMain.handle('leads:update', (_, id, data) => prospectionRepo.updateLead(id, data));
-  ipcMain.handle('leads:delete', (_, id) => prospectionRepo.deleteLead(id));
-  ipcMain.handle('leads:getStats', (_, todayStr, monthPrefix) => prospectionRepo.getProspectionStats(todayStr, monthPrefix));
+
+  ipcMain.handle('leads:update', (event, id, data) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    if (typeof id !== 'string' || !id || !data || typeof data !== 'object') throw new Error('Invalid update parameters');
+    return prospectionRepo.updateLead(id, data);
+  });
+
+  ipcMain.handle('leads:delete', (event, id) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    if (typeof id !== 'string' || !id) throw new Error('Invalid lead ID');
+    return prospectionRepo.deleteLead(id);
+  });
+
+  ipcMain.handle('leads:getStats', (event, todayStr, monthPrefix) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    return prospectionRepo.getProspectionStats(todayStr, monthPrefix);
+  });
 
   // Settings & Logs
-  ipcMain.handle('settings:get', () => settingsRepo.getSettings());
-  ipcMain.handle('settings:update', (_, newSettings) => {
+  ipcMain.handle('settings:get', (event) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    return settingsRepo.getSettings();
+  });
+
+  ipcMain.handle('settings:update', (event, newSettings) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    if (!newSettings || typeof newSettings !== 'object') throw new Error('Invalid settings object');
     const updated = settingsRepo.updateSettings(newSettings);
     // Auto-launch setting
     if (newSettings.startWithWindows !== undefined) {
@@ -306,42 +414,69 @@ function registerIPCHandlers() {
       setMainWindowAlwaysOnTop(newSettings.alwaysOnTop);
     }
     // Global shortcut setting
-    if (newSettings.globalShortcutToggle !== undefined) {
+    if (newSettings.globalShortcutToggle !== undefined && typeof newSettings.globalShortcutToggle === 'string') {
       registerGlobalToggleShortcut(newSettings.globalShortcutToggle);
     }
     updateTrayMenu();
     broadcastToAllWindows('settings-changed', updated);
     return updated;
   });
-  ipcMain.handle('logs:getAll', () => settingsRepo.getErrorLogs());
-  ipcMain.handle('logs:clear', () => settingsRepo.clearErrorLogs());
+
+  ipcMain.handle('logs:getAll', (event) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    return settingsRepo.getErrorLogs();
+  });
+
+  ipcMain.handle('logs:clear', (event) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    return settingsRepo.clearErrorLogs();
+  });
 
   // Backups
-  ipcMain.handle('backup:export', () => settingsRepo.exportBackupData());
-  ipcMain.handle('backup:import', (_, backupJson) => {
+  ipcMain.handle('backup:export', (event) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    return settingsRepo.exportBackupData();
+  });
+
+  ipcMain.handle('backup:import', (event, backupJson) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
     const res = settingsRepo.importBackupData(backupJson);
     broadcastToAllWindows('tasks-changed');
     return res;
   });
-  ipcMain.handle('backup:exportCSV', () => settingsRepo.exportTasksToCSV());
+
+  ipcMain.handle('backup:exportCSV', (event) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    return settingsRepo.exportTasksToCSV();
+  });
 
   // Window Controls
-  ipcMain.handle('window:toggleMain', () => {
+  ipcMain.handle('window:toggleMain', (event) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
     return toggleMainWindow();
   });
-  ipcMain.handle('window:openMain', () => {
+
+  ipcMain.handle('window:openMain', (event) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
     showMainWindow(true);
     return true;
   });
-  ipcMain.handle('window:hideMain', () => {
+
+  ipcMain.handle('window:hideMain', (event) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
     hideMainWindow();
     return true;
   });
-  ipcMain.handle('window:setAlwaysOnTop', (_, enabled) => {
-    setMainWindowAlwaysOnTop(enabled);
+
+  ipcMain.handle('window:setAlwaysOnTop', (event, enabled) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    setMainWindowAlwaysOnTop(Boolean(enabled));
     return true;
   });
-  ipcMain.handle('window:focusTask', (_, taskId) => {
+
+  ipcMain.handle('window:focusTask', (event, taskId) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    if (typeof taskId !== 'string' || !taskId) throw new Error('Invalid task ID');
     const mainWin = showMainWindow(true);
     if (mainWin) {
       mainWin.webContents.send('focus-task', taskId);
@@ -349,7 +484,9 @@ function registerIPCHandlers() {
   });
 
   // Shortcut Verification
-  ipcMain.handle('shortcut:checkConflict', (_, shortcutStr) => {
+  ipcMain.handle('shortcut:checkConflict', (event, shortcutStr) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    if (typeof shortcutStr !== 'string') return { conflict: false };
     try {
       const isReg = globalShortcut.isRegistered(shortcutStr);
       return { conflict: isReg };
@@ -359,14 +496,32 @@ function registerIPCHandlers() {
   });
 
   // Widget Controls
-  ipcMain.handle('widget:setCompact', (_, isCompact) => setWidgetCompact(isCompact));
-  ipcMain.handle('widget:setOpacity', (_, opacity) => setWidgetOpacity(opacity));
-  ipcMain.handle('widget:hide', () => hideWidget());
-  ipcMain.handle('widget:show', () => {
+  ipcMain.handle('widget:setCompact', (event, isCompact) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    return setWidgetCompact(Boolean(isCompact));
+  });
+
+  ipcMain.handle('widget:setOpacity', (event, opacity) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    const clamped = Math.max(0.1, Math.min(1.0, Number(opacity) || 0.95));
+    return setWidgetOpacity(clamped);
+  });
+
+  ipcMain.handle('widget:hide', (event) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    return hideWidget();
+  });
+
+  ipcMain.handle('widget:show', (event) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
     const pinned = tasksRepo.getCurrentlyPinnedTasks();
     showWidget(pinned);
   });
-  ipcMain.handle('quickCapture:hide', () => hideQuickCapture());
+
+  ipcMain.handle('quickCapture:hide', (event) => {
+    if (!validateIpcSender(event)) throw new Error('Unauthorized IPC sender');
+    return hideQuickCapture();
+  });
 
   // Debug/Test Midnight Rollover Simulation
   ipcMain.handle('debug:simulateMidnight', (_, dateStr) => {
@@ -376,6 +531,13 @@ function registerIPCHandlers() {
 }
 
 app.whenReady().then(() => {
+  // Security: Deny all unneeded browser/hardware permission requests
+  try {
+    session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+      callback(false);
+    });
+  } catch (e) {}
+
   // 0. Set AppUserModelId for native Windows Toast Notifications
   try {
     app.setAppUserModelId('com.winc.taskhub');

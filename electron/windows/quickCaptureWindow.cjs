@@ -32,7 +32,30 @@ function createQuickCaptureWindow(isDev = false, devServerUrl = '') {
       preload: path.join(__dirname, '../preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
       devTools: isDev
+    }
+  });
+
+  const { shell } = require('electron');
+  quickCaptureWin.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('https://') || url.startsWith('http://')) {
+      shell.openExternal(url).catch(() => {});
+    }
+    return { action: 'deny' };
+  });
+
+  quickCaptureWin.webContents.on('will-navigate', (event, navigationUrl) => {
+    if (isDev && devServerUrl && navigationUrl.startsWith(devServerUrl)) return;
+    try {
+      const parsed = new URL(navigationUrl);
+      if (parsed.protocol === 'file:') return;
+    } catch (e) {}
+    event.preventDefault();
+    if (navigationUrl.startsWith('https://') || navigationUrl.startsWith('http://')) {
+      shell.openExternal(navigationUrl).catch(() => {});
     }
   });
 
