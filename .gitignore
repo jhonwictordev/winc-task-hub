@@ -15,8 +15,9 @@ build/
 *.rpm
 *.zip
 *.asar
+*.nupkg
 
-# Local databases and SQLite temporary files
+# Local databases, WAL, and backups
 *.db
 *.db-journal
 *.db-wal
@@ -24,8 +25,11 @@ build/
 tests/*.db
 tests/*.db-wal
 tests/*.db-shm
+backups/
+*.bak
+*.backup
 
-# Log files
+# Log files and process output
 logs/
 *.log
 npm-debug.log*
@@ -38,11 +42,20 @@ out.log
 .cache/
 .temp/
 .tmp/
+.turbo/
 
-# Environment and editor
+# Environment, secrets, and credentials
 .env
 .env.local
 .env.*.local
+!.env.example
+*.pem
+*.key
+*.crt
+*.pfx
+*.p12
+
+# OS and Editor files
 .DS_Store
 Thumbs.db
 .vscode/
